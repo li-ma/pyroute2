@@ -160,9 +160,9 @@ class Marshal(object):
                 msg['header']['error'] = error
                 # try to decode encapsulated error message
                 if error is not None:
-                    enc_type = struct.unpack('H', msg.raw[24:26])[0]
+                    enc_type = struct.unpack('H', msg.buf[24:26])[0]
                     enc_class = self.msg_map.get(enc_type, nlmsg)
-                    enc = enc_class(msg.raw[20:])
+                    enc = enc_class(msg.buf[20:])
                     enc.decode()
                     msg['header']['errmsg'] = enc
             except NetlinkHeaderDecodeError as e:
@@ -527,7 +527,7 @@ class NetlinkMixin(object):
             if msg_seq not in self.clean_cbs:
                 self.clean_cbs[msg_seq] = []
             self.clean_cbs[msg_seq].extend(msg.clean_cbs)
-            self.sendto(msg.buf.getvalue(), addr)
+            self.sendto(msg.buf, addr)
         except:
             raise
         finally:

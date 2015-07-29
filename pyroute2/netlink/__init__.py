@@ -311,7 +311,7 @@ The code::
     msg.encode()
 
     # send the buffer
-    nlsock.sendto(msg.buf.getvalue(), (0, 0))
+    nlsock.sendto(msg.buf, (0, 0))
 
 Please notice, that NLA list *MUST* be mutable.
 
@@ -326,7 +326,6 @@ import socket
 import struct
 import types
 import sys
-import io
 import re
 import os
 
@@ -553,18 +552,20 @@ class nlmsg_base(dict):
 
     def __init__(self,
                  buf=None,
-                 length=None,
+                 offset=0,
+                 length=0,
                  parent=None,
                  debug=False,
                  init=None):
         dict.__init__(self)
         for i in self.fields:
             self[i[0]] = 0  # FIXME: only for number values
-        self.raw = None
+        self.buf = buf
         self.debug = debug
-        self.length = length or 0
+        self.length = length
+        self.offset = offset
+        self.cursor = offset
         self.parent = parent
-        self.offset = 0
         self.prefix = None
         self.nla_init = init
         self['attrs'] = []
@@ -572,10 +573,12 @@ class nlmsg_base(dict):
         self.value = NotInitialized
         self.register_nlas()
         self.r_value_map = dict([(x[1], x[0]) for x in self.value_map.items()])
-        self.reset(buf)
         self.clean_cbs = []
         if self.header is not None:
-            self['header'] = self.header(self.buf)
+            self['header'] = self.header()
+
+    def reset(self):
+        pass
 
     def copy(self):
         '''
@@ -583,27 +586,9 @@ class nlmsg_base(dict):
         correctly only if the message was encoded, or is
         received from the socket.
         '''
-        ret = type(self)(self.buf.getvalue())
+        ret = type(self)(self.buf)
         ret.decode()
         return ret
-
-    def reset(self, buf=None):
-        '''
-        Reset the message buffer. Optionally, set the message
-        from the `buf` parameter. This parameter can be either
-        string, or io.BytesIO, or dict instance.
-        '''
-        if isinstance(buf, basestring):
-            b = io.BytesIO()
-            b.write(buf)
-            b.seek(0)
-            buf = b
-        if isinstance(buf, dict):
-            self.setvalue(buf)
-            buf = None
-        self.buf = buf or io.BytesIO()
-        if 'header' in self:
-            self['header'].buf = self.buf
 
     def register_clean_cb(self, cb):
         if self.parent is not None:
@@ -734,17 +719,6 @@ class nlmsg_base(dict):
             name = "%s%s" % (self.prefix, name)
         return name
 
-    def reserve(self):
-        '''
-        Reserve space in the buffer for data. This can be used
-        to skip encoding of the header until some fields will
-        be known.
-        '''
-        size = 0
-        for i in self.fields:
-            size += struct.calcsize(i[1])
-        self.buf.seek(size, 1)
-
     def decode(self):
         '''
         Decode the message. The message should have the `buf`
@@ -762,28 +736,29 @@ class nlmsg_base(dict):
                     nlmsg.decode(self)
                     ...  # do some custom data tuning
         '''
-        self.offset = self.buf.tell()
         # decode the header
         if self.header is not None:
             try:
+                self['header'] = self.header(buf=self.buf, offset=self.offset)
                 self['header'].decode()
+                self.cursor = self['header'].cursor
                 # update length from header
                 # it can not be less than 4
                 self.length = max(self['header']['length'], 4)
-                save = self.buf.tell()
-                self.buf.seek(self.offset)
-                self.raw = self.buf.read(self.length)
-                self.buf.seek(save)
             except Exception as e:
                 raise NetlinkHeaderDecodeError(e)
         # handle the array case
         if self.nla_array:
             self.setvalue([])
-            while self.buf.tell() < self.offset + self.length:
-                cell = type(self)(self.buf, parent=self, debug=self.debug)
+            while self.cursor < self.offset + self.length:
+                cell = type(self)(buf=self.buf,
+                                  offset=self.cursor,
+                                  parent=self,
+                                  debug=self.debug)
                 cell.nla_array = False
                 cell.decode()
                 self.value.append(cell)
+                self.cursor += cell.length
         # decode the data
         try:
             if self.pack == 'struct':
@@ -806,41 +781,31 @@ class nlmsg_base(dict):
                     fmt = '%is' % (self.length - 4)
 
                 size = struct.calcsize(fmt)
-                raw = self.buf.read(size)
-                actual_size = len(raw)
-
-                # FIXME: adjust string size again
-                if field[1] in ('s', 'z'):
-                    size = actual_size
-                    fmt = '%is' % (actual_size)
-                if size == actual_size:
-                    value = struct.unpack(fmt, raw)
-                    if len(value) == 1:
-                        self[name] = value[0]
-                        # cut zero-byte from z-strings
-                        # 0x00 -- python3; '\0' -- python2
-                        if field[1] == 'z' and self[name][-1] in (0x00, '\0'):
-                            self[name] = self[name][:-1]
-                    else:
-                        if self.pack == 'struct':
-                            names = name.split(',')
-                            values = list(value)
-                            for name in names:
-                                if name[0] != '_':
-                                    self[name] = values.pop(0)
-                        else:
-                            self[name] = value
-
+                raw = self.buf[self.cursor:self.cursor + size]
+                self.cursor += size
+                value = struct.unpack(fmt, raw)
+                if len(value) == 1:
+                    self[name] = value[0]
+                    # cut zero-byte from z-strings
+                    # 0x00 -- python3; '\0' -- python2
+                    if field[1] == 'z' and self[name][-1] in (0x00, '\0'):
+                        self[name] = self[name][:-1]
                 else:
-                    # FIXME: log an error
-                    pass
+                    if self.pack == 'struct':
+                        names = name.split(',')
+                        values = list(value)
+                        for name in names:
+                            if name[0] != '_':
+                                self[name] = values.pop(0)
+                    else:
+                        self[name] = value
 
         except Exception as e:
             raise NetlinkDataDecodeError(e)
         # decode NLA
         try:
             # align NLA chain start
-            self.buf.seek(NLMSG_ALIGN(self.buf.tell()))
+            self.cursor = NLMSG_ALIGN(self.cursor)
             # read NLA chain
             if self.nla_map:
                 self.decode_nlas()
@@ -857,7 +822,7 @@ class nlmsg_base(dict):
         Encode the message into the binary buffer::
 
             msg.encode()
-            sock.send(msg.buf.getvalue())
+            sock.send(msg.buf)
 
         If you want to customize the encoding process, override
         the method::
@@ -868,14 +833,13 @@ class nlmsg_base(dict):
                     ...  # do some custom data tuning
                     nlmsg.encode(self)
         '''
-        init = self.buf.tell()
+        self.buf = b''
+        self.offset = 0
+        self.cursor = 0
+        self.length = 0
         diff = 0
-        # reserve space for the header
-        if self.header is not None:
-            self['header'].reserve()
 
         if self.getvalue() is not None:
-
             payload = b''
             for i in self.fields:
                 name = i[0]
@@ -914,22 +878,17 @@ class nlmsg_base(dict):
                     raise
 
             diff = NLMSG_ALIGN(len(payload)) - len(payload)
-            self.buf.write(payload)
-            self.buf.write(b'\0' * diff)
+            self.buf = payload + b'\0' * diff
         # write NLA chain
         if self.nla_map:
-            diff = 0
             self.encode_nlas()
         # calculate the size and write it
         if self.header is not None:
-            self.update_length(init, diff)
-
-    def update_length(self, start, diff=0):
-        save = self.buf.tell()
-        self['header']['length'] = save - start - diff
-        self.buf.seek(start)
-        self['header'].encode()
-        self.buf.seek(save)
+            self['header']['length'] = sum([struct.calcsize(x[1]) for x
+                                            in self['header'].fields])
+            self['header']['length'] += len(self.buf) - diff
+            self['header'].encode()
+            self.buf = self['header'].buf + self.buf
 
     def setvalue(self, value):
         if isinstance(value, dict):
@@ -1079,12 +1038,13 @@ class nlmsg_base(dict):
                     # if it is a function -- use it to get the class
                     msg_class = msg_class()
                 # encode NLA
-                nla = msg_class(self.buf, parent=self, init=msg_init)
+                nla = msg_class(parent=self, init=msg_init)
                 nla.nla_flags |= self.r_nla_map[i[0]][2]
                 nla['header']['type'] = msg_type | nla.nla_flags
                 nla.setvalue(i[1])
                 try:
                     nla.encode()
+                    self.buf += nla.buf
                 except:
                     raise
                 else:
@@ -1098,17 +1058,15 @@ class nlmsg_base(dict):
         Decode the NLA chain. Should not be called manually, since
         it is called from `decode()` routine.
         '''
-        while self.buf.tell() < (self.offset + self.length):
-            init = self.buf.tell()
+        while self.cursor < (self.offset + self.length):
             nla = None
             # pick the length and the type
-            (length, msg_type) = struct.unpack('HH', self.buf.read(4))
+            (length, msg_type) = struct.unpack(
+                'HH', self.buf[self.cursor:self.cursor + 4])
             # first two bits of msg_type are flags:
             msg_type = msg_type & ~(NLA_F_NESTED | NLA_F_NET_BYTEORDER)
-            # rewind to the beginning
-            self.buf.seek(init)
             length = min(max(length, 4),
-                         (self.length - self.buf.tell() + self.offset))
+                         (self.length - self.cursor + self.offset))
 
             # we have a mapping for this NLA
             if msg_type in self.t_nla_map:
@@ -1117,7 +1075,9 @@ class nlmsg_base(dict):
                 # is it a class or a function?
                 if isinstance(msg_class, types.MethodType):
                     # if it is a function -- use it to get the class
-                    msg_class = msg_class(buf=self.buf, length=length)
+                    msg_class = msg_class(buf=self.buf,
+                                          offset=self.cursor,
+                                          length=length)
                 # and the name
                 msg_name = self.t_nla_map[msg_type][1]
                 # is it an array?
@@ -1125,7 +1085,10 @@ class nlmsg_base(dict):
                 # initstring
                 msg_init = self.t_nla_map[msg_type][4]
                 # decode NLA
-                nla = msg_class(self.buf, length, self,
+                nla = msg_class(buf=self.buf,
+                                offset=self.cursor,
+                                length=length,
+                                parent=self,
                                 debug=self.debug,
                                 init=msg_init)
                 nla.nla_array = msg_array
@@ -1136,19 +1099,19 @@ class nlmsg_base(dict):
                 except Exception:
                     logging.warning("decoding %s" % (msg_name))
                     logging.warning(traceback.format_exc())
-                    self.buf.seek(init)
                     msg_name = 'UNDECODED'
-                    msg_value = hexdump(self.buf.read(length))
+                    msg_value = hexdump(
+                        self.buf[self.cursor:self.cursor + length])
                 else:
                     msg_value = nla.getvalue()
             else:
                 msg_name = 'UNKNOWN'
-                msg_value = hexdump(self.buf.read(length))
+                msg_value = hexdump(self.buf[self.cursor:self.cursor + length])
 
             self['attrs'].append([msg_name, msg_value])
 
             # fix the offset
-            self.buf.seek(init + NLMSG_ALIGN(length))
+            self.cursor += NLMSG_ALIGN(length)
 
 
 class nla_header(nlmsg_base):

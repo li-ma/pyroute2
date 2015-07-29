@@ -735,7 +735,7 @@ def proxy_linkinfo(data, nl):
 
         msg.reset()
         msg.encode()
-        data += msg.buf.getvalue()
+        data += msg.buf
 
     return {'verdict': 'forward',
             'data': data}
