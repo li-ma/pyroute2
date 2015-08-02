@@ -957,17 +957,11 @@ class IPDB(object):
     def update_neighbours(self, neighs, action='add'):
 
         for neigh in neighs:
-            nla = neigh.get_attr('NDA_DST')
-            if self.debug:
-                raw = neigh
-            else:
-                raw = {'lladdr': neigh.get_attr('NDA_LLADDR')}
-            if nla is not None:
-                try:
-                    method = getattr(self.neighbours[neigh['ifindex']], action)
-                    method(key=nla, raw=raw)
-                except:
-                    pass
+            try:
+                method = getattr(self.neighbours[neigh['ifindex']], action)
+                method(neigh)
+            except:
+                pass
 
     def serve_forever(self):
         '''

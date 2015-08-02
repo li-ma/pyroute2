@@ -129,6 +129,24 @@ class LinkedSet(set):
         return repr(list(self))
 
 
+class NeighboursSet(LinkedSet):
+
+    def add(self, neigh, *argv, **kwarg):
+        if not isinstance(neigh, nlmsg):
+            return LinkedSet.add(self, neigh, *argv, **kwarg)
+        key = neigh.get_attr('NDA_DST')
+        raw = {'lladdr': neigh.get_attr('NDA_LLADDR')}
+        if key is not None:
+            return LinkedSet.add(self, key, raw=raw)
+
+    def remove(self, neigh, *argv, **kwarg):
+        if not isinstance(neigh, nlmsg):
+            return LinkedSet.remove(self, neigh, *argv, **kwarg)
+        key = neigh.get_attr('NDA_DST')
+        if key is not None:
+            return LinkedSet.remove(self, key, *argv, **kwarg)
+
+
 class IPaddrSet(LinkedSet):
     '''
     LinkedSet child class with different target filter. The
@@ -154,11 +172,13 @@ class IPaddrSet(LinkedSet):
                'address': addr.get_attr('IFA_ADDRESS'),
                'flags': addr.get_attr('IFA_FLAGS'),
                'prefixlen': addr.get('prefixlen')}
-        return LinkedSet.add(self, key=key, raw=raw)
+        if key is not None:
+            return LinkedSet.add(self, key=key, raw=raw)
 
     def remove(self, addr, *argv, **kwarg):
         if not isinstance(addr, nlmsg):
             return LinkedSet.remove(self, addr, *argv, **kwarg)
 
         key = self._get_addr_nla(addr)
-        return LinkedSet.remove(self, key=key, *argv, **kwarg)
+        if key is not None:
+            return LinkedSet.remove(self, key=key, *argv, **kwarg)
