@@ -80,9 +80,6 @@ class Route(Transactional):
 
     def load_netlink(self, msg):
         with self._direct_state:
-            if self['ipdb_scope'] == 'locked':
-                # do not touch locked interfaces
-                return
 
             self['ipdb_scope'] = 'system'
             self.update(msg)
@@ -165,17 +162,13 @@ class Route(Transactional):
                 wd.wait()
 
             # route removal
-            if (transaction['ipdb_scope'] in ('shadow', 'remove')) or\
+            if (transaction['ipdb_scope'] == 'remove') or\
                     ((transaction['ipdb_scope'] == 'create') and rollback):
                 wd = self.ipdb.watchdog('RTM_DELROUTE',
                                         **WatchdogKey(snapshot))
-                if transaction['ipdb_scope'] == 'shadow':
-                    self.set_item('ipdb_scope', 'locked')
                 self.ipdb.update_routes(
                     self.nl.route('delete', **IPRouteRequest(snapshot)))
                 wd.wait()
-                if transaction['ipdb_scope'] == 'shadow':
-                    self.set_item('ipdb_scope', 'shadow')
 
         except Exception as e:
             if not rollback:
@@ -205,10 +198,6 @@ class Route(Transactional):
 
     def remove(self):
         self['ipdb_scope'] = 'remove'
-        return self
-
-    def shadow(self):
-        self['ipdb_scope'] = 'shadow'
         return self
 
 
@@ -380,9 +369,8 @@ class RoutingTableSet(object):
                 # locate the record
                 record = self.tables[table][key]
                 # delete the record
-                if record['ipdb_scope'] not in ('locked', 'shadow'):
-                    del self.tables[table][key]
-                    record.set_item('ipdb_scope', 'detached')
+                del self.tables[table][key]
+                record.set_item('ipdb_scope', 'detached')
                 # sync ???
                 record.sync()
             except Exception as e:
