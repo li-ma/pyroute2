@@ -318,32 +318,6 @@ from pyroute2.ipdb.common import SYNC_TIMEOUT
 from pyroute2.ipdb.route import RoutingTableSet
 
 
-def get_addr_nla(msg):
-    '''
-    Utility function to get NLA, containing the interface
-    address.
-
-    Inconsistency in Linux IP addressing scheme is that
-    IPv4 uses IFA_LOCAL to store interface's ip address,
-    and IPv6 uses for the same IFA_ADDRESS.
-
-    IPv4 sets IFA_ADDRESS to == IFA_LOCAL or to a
-    tunneling endpoint.
-
-    Args:
-        - msg (nlmsg): RTM\_.*ADDR message
-
-    Returns:
-        - nla (nla): IFA_LOCAL for IPv4 and IFA_ADDRESS for IPv6
-    '''
-    nla = None
-    if msg['family'] == AF_INET:
-        nla = msg.get_attr('IFA_LOCAL')
-    elif msg['family'] == AF_INET6:
-        nla = msg.get_attr('IFA_ADDRESS')
-    return nla
-
-
 class Watchdog(object):
     def __init__(self, ipdb, action, kwarg):
         self.event = threading.Event()
@@ -974,21 +948,11 @@ class IPDB(object):
         # Update address list of an interface.
 
         for addr in addrs:
-            nla = get_addr_nla(addr)
-            if self.debug:
-                raw = addr
-            else:
-                raw = {'local': addr.get_attr('IFA_LOCAL'),
-                       'broadcast': addr.get_attr('IFA_BROADCAST'),
-                       'address': addr.get_attr('IFA_ADDRESS'),
-                       'flags': addr.get_attr('IFA_FLAGS'),
-                       'prefixlen': addr.get('prefixlen')}
-            if nla is not None:
-                try:
-                    method = getattr(self.ipaddr[addr['index']], action)
-                    method(key=(nla, addr['prefixlen']), raw=raw)
-                except:
-                    pass
+            try:
+                method = getattr(self.ipaddr[addr['index']], action)
+                method(addr)
+            except:
+                pass
 
     def update_neighbours(self, neighs, action='add'):
 

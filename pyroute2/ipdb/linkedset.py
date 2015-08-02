@@ -1,6 +1,9 @@
 '''
 '''
 import threading
+from socket import AF_INET
+from socket import AF_INET6
+from pyroute2.netlink import nlmsg
 
 
 class LinkedSet(set):
@@ -134,3 +137,28 @@ class IPaddrSet(LinkedSet):
     '''
     def target_filter(self, x):
         return not ((x[0][:4] == 'fe80') and (x[1] == 64))
+
+    def _get_addr_nla(self, addr):
+        if addr['family'] == AF_INET:
+            return (addr.get_attr('IFA_LOCAL'), addr['prefixlen'])
+        elif addr['family'] == AF_INET6:
+            return (addr.get_attr('IFA_ADDRESS'), addr['prefixlen'])
+
+    def add(self, addr, *argv, **kwarg):
+        if not isinstance(addr, nlmsg):
+            return LinkedSet.add(self, addr, *argv, **kwarg)
+
+        key = self._get_addr_nla(addr)
+        raw = {'local': addr.get_attr('IFA_LOCAL'),
+               'broadcast': addr.get_attr('IFA_BROADCAST'),
+               'address': addr.get_attr('IFA_ADDRESS'),
+               'flags': addr.get_attr('IFA_FLAGS'),
+               'prefixlen': addr.get('prefixlen')}
+        return LinkedSet.add(self, key=key, raw=raw)
+
+    def remove(self, addr, *argv, **kwarg):
+        if not isinstance(addr, nlmsg):
+            return LinkedSet.remove(self, addr, *argv, **kwarg)
+
+        key = self._get_addr_nla(addr)
+        return LinkedSet.remove(self, key=key, *argv, **kwarg)
