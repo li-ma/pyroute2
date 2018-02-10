@@ -6,21 +6,18 @@ since eventlet affects all the runtime.
 '''
 import uuid
 from nose.plugins.skip import SkipTest
-from utils import require_user
 try:
     import eventlet
+    eventlet.monkey_patch()
 except ImportError:
     raise SkipTest('eventlet library is not installed')
-from pyroute2.config.eventlet import eventlet_config
+from utils import require_user
+from pyroute2.config.asyncio import asyncio_config
 from pyroute2 import IPRoute
 from pyroute2 import NetNS
 from pyroute2 import IPDB
 
-try:
-    eventlet.monkey_patch()
-except AttributeError:
-    raise SkipTest('eventlet library is not installed')
-eventlet_config()
+asyncio_config()
 
 
 class TestBasic(object):
@@ -35,9 +32,10 @@ class TestBasic(object):
             ip.close()
 
     def test_netns(self):
+        require_user('root')
         ns = NetNS(str(uuid.uuid4()))
         try:
-            assert len(ns.get_links()) > 1
+            assert len(ns.get_links()) >= 1
         except:
             raise
         finally:
@@ -56,7 +54,7 @@ class TestBasic(object):
             ip.release()
 
 
-class TestComplex(object):
+class _TestComplex(object):
 
     def test_vrouter(self):
         require_user('root')

@@ -10,9 +10,11 @@ import sys
 import errno
 import types
 import struct
+import socket
+import logging
 import threading
 
-from socket import inet_aton
+log = logging.getLogger(__name__)
 
 try:
     basestring = basestring
@@ -77,8 +79,12 @@ class View(object):
     '''
     A read-only view of a dictionary object.
     '''
-    def __init__(self, src=None, constraint=lambda k, v: True):
+    def __init__(self, src=None, path=None, constraint=lambda k, v: True):
         self.src = src if src is not None else {}
+        if path is not None:
+            path = path.split('/')
+            for step in path:
+                self.src = getattr(self.src, step)
         self.constraint = constraint
 
     def __getitem__(self, key):
@@ -105,7 +111,7 @@ class View(object):
                 if self.constraint(key, value):
                     ret.append((key, value))
             except Exception as e:
-                print(e)
+                log.error("view filter error: %s", e)
         return ret
 
     def keys(self):
@@ -161,7 +167,7 @@ class Namespace(object):
 class Dotkeys(dict):
     '''
     This is a sick-minded hack of dict, intended to be an eye-candy.
-    It allows to get dict's items byt dot reference:
+    It allows to get dict's items by dot reference:
 
     ipdb["lo"] == ipdb.lo
     ipdb["eth0"] == ipdb.eth0
@@ -190,8 +196,10 @@ class Dotkeys(dict):
                     self[key[4:]] = value
                     return self
                 return set_value
-            else:
+            elif key in self:
                 return self[key]
+            else:
+                raise e
 
     def __setattr__(self, key, value):
         if key in self:
@@ -247,11 +255,37 @@ def map_namespace(prefix, ns, normalize=None):
     return (by_name, by_value)
 
 
+def getbroadcast(addr, mask, family=socket.AF_INET):
+    # 1. convert addr to int
+    i = socket.inet_pton(family, addr)
+    if family == socket.AF_INET:
+        i = struct.unpack('>I', i)[0]
+        a = 0xffffffff
+        l = 32
+    elif family == socket.AF_INET6:
+        i = struct.unpack('>QQ', i)
+        i = i[0] << 64 | i[1]
+        a = 0xffffffffffffffffffffffffffffffff
+        l = 128
+    else:
+        raise NotImplementedError('family not supported')
+    # 2. calculate mask
+    m = (a << l - mask) & a
+    # 3. calculate default broadcast
+    n = (i & m) | a >> mask
+    # 4. convert it back to the normal address form
+    if family == socket.AF_INET:
+        n = struct.pack('>I', n)
+    else:
+        n = struct.pack('>QQ', n >> 64, n & (a >> 64))
+    return socket.inet_ntop(family, n)
+
+
 def dqn2int(mask):
     '''
     IPv4 dotted quad notation to int mask conversion
     '''
-    return bin(struct.unpack('>L', inet_aton(mask))[0]).count('1')
+    return bin(struct.unpack('>L', socket.inet_aton(mask))[0]).count('1')
 
 
 def hexdump(payload, length=0):
@@ -272,6 +306,61 @@ def hexload(data):
         return bytes(ret, 'ascii')
     else:
         return bytes(ret)
+
+
+def load_dump(f, meta=None):
+    '''
+    Load a packet dump from an open file-like object.
+
+    Supported dump formats:
+
+    * strace hex dump (\\x00\\x00...)
+    * pyroute2 hex dump (00:00:...)
+
+    Simple markup is also supported. Any data from # or ;
+    till the end of the string is a comment and ignored.
+    Any data after . till EOF is ignored as well.
+
+    With #! starts an optional code block. All the data
+    in the code block will be read and returned via
+    metadata dictionary.
+    '''
+    data = ''
+    code = None
+    for a in f.readlines():
+        if code is not None:
+            code += a
+            continue
+
+        offset = 0
+        length = len(a)
+        while offset < length:
+            if a[offset] in (' ', '\t', '\n'):
+                offset += 1
+            elif a[offset] == '#':
+                if a[offset:offset+2] == '#!':
+                    # read and save the code block;
+                    # do not parse it here
+                    code = ''
+                break
+            elif a[offset] == '.':
+                return data
+            elif a[offset] == '\\':
+                # strace hex format
+                data += chr(int(a[offset+2:offset+4], 16))
+                offset += 4
+            else:
+                # pyroute2 hex format
+                data += chr(int(a[offset:offset+2], 16))
+                offset += 3
+
+    if isinstance(meta, dict):
+        meta['code'] = code
+
+    if sys.version[0] == '3':
+        return bytes(data, 'iso8859-1')
+    else:
+        return data
 
 
 class AddrPool(object):
@@ -481,3 +570,19 @@ def map_enoent(f):
                                     x.errno == errno.ENOENT),
                          lambda x: OSError(errno.EOPNOTSUPP,
                                            'Operation not supported'))(f)
+
+
+def metaclass(mc):
+    def wrapped(cls):
+        nvars = {}
+        skip = ['__dict__', '__weakref__']
+        slots = cls.__dict__.get('__slots__')
+        if not isinstance(slots, (list, tuple)):
+            slots = [slots]
+        for k in slots:
+            skip.append(k)
+        for (k, v) in cls.__dict__.items():
+            if k not in skip:
+                nvars[k] = v
+        return mc(cls.__name__, cls.__bases__, nvars)
+    return wrapped

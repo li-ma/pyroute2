@@ -23,15 +23,15 @@ Create veth and move the peer to a netns with IPRoute::
 
     from pyroute2 import IPRoute
     ipr = IPRoute()
-    ipr.link_create(ifname='v0p0', kind='veth', peer='v0p0')
+    ipr.link('add', ifname='v0p0', kind='veth', peer='v0p1')
     idx = ipr.link_lookup(ifname='v0p1')[0]
-    ipr.link('set', index=idx, net_ns_fs='netns_name')
+    ipr.link('set', index=idx, net_ns_fd='netns_name')
 
 Create veth and move the peer to a netns with IPDB::
 
     from pyroute2 import IPDB
     ipdb = IPDB()
-    ipdb.create(ifname='v0p0', kind='veth', peer='v0p0').commit()
+    ipdb.create(ifname='v0p0', kind='veth', peer='v0p1').commit()
     with ipdb.interfaces.v0p1 as i:
         i.net_ns_fd = 'netns_name'
 
@@ -77,16 +77,31 @@ loading this module, dumps the core, one can check the
 SELinux state with `getenforce` command.
 
 '''
-
+import io
 import os
+import os.path
 import errno
 import ctypes
-import sys
+import pickle
+import struct
+import traceback
+from pyroute2 import config
+from pyroute2.common import basestring
+try:
+    file = file
+except NameError:
+    file = io.IOBase
 
-if sys.maxsize > 2**32:
-    __NR_setns = 308
-else:
-    __NR_setns = 346
+# FIXME: arch reference
+__NR = {'x86_': {'64bit': 308},
+        'i386': {'32bit': 346},
+        'i686': {'32bit': 346},
+        'mips': {'32bit': 4344,
+                 '64bit': 5303},  # FIXME: NABI32?
+        'armv': {'32bit': 375},
+        'aarc': {'64bit': 268},  # FIXME: EABI vs. OABI?
+        'ppc6': {'64bit': 350}}
+__NR_setns = __NR.get(config.machine[:4], {}).get(config.arch, 308)
 
 CLONE_NEWNET = 0x40000000
 MNT_DETACH = 0x00000002
@@ -96,12 +111,25 @@ MS_SHARED = 1 << 20
 NETNS_RUN_DIR = '/var/run/netns'
 
 
-def listnetns():
+def _get_netnspath(name):
+    netnspath = name
+    dirname = os.path.dirname(name)
+    if not dirname:
+        netnspath = '%s/%s' % (NETNS_RUN_DIR, name)
+    netnspath = netnspath.encode('ascii')
+    return netnspath
+
+
+def listnetns(nspath=None):
     '''
     List available network namespaces.
     '''
+    if nspath:
+        nsdir = nspath
+    else:
+        nsdir = NETNS_RUN_DIR
     try:
-        return os.listdir(NETNS_RUN_DIR)
+        return os.listdir(nsdir)
     except OSError as e:
         if e.errno == errno.ENOENT:
             return []
@@ -109,16 +137,10 @@ def listnetns():
             raise
 
 
-def create(netns, libc=None):
-    '''
-    Create a network namespace.
-    '''
+def _create(netns, libc=None):
     libc = libc or ctypes.CDLL('libc.so.6', use_errno=True)
-    # FIXME validate and prepare NETNS_RUN_DIR
-
-    netnspath = '%s/%s' % (NETNS_RUN_DIR, netns)
-    netnspath = netnspath.encode('ascii')
-    netnsdir = NETNS_RUN_DIR.encode('ascii')
+    netnspath = _get_netnspath(netns)
+    netnsdir = os.path.dirname(netnspath)
 
     # init netnsdir
     try:
@@ -148,13 +170,41 @@ def create(netns, libc=None):
         raise OSError(ctypes.get_errno(), 'mount failed', netns)
 
 
+def create(netns, libc=None):
+    '''
+    Create a network namespace.
+    '''
+    rctl, wctl = os.pipe()
+    pid = os.fork()
+    if pid == 0:
+        # child
+        error = None
+        try:
+            _create(netns, libc)
+        except Exception as e:
+            error = e
+            error.tb = traceback.format_exc()
+        msg = pickle.dumps(error)
+        os.write(wctl, struct.pack('I', len(msg)))
+        os.write(wctl, msg)
+        os._exit(0)
+    else:
+        # parent
+        msglen = struct.unpack('I', os.read(rctl, 4))[0]
+        error = pickle.loads(os.read(rctl, msglen))
+        os.close(rctl)
+        os.close(wctl)
+        os.waitpid(pid, 0)
+        if error is not None:
+            raise error
+
+
 def remove(netns, libc=None):
     '''
     Remove a network namespace.
     '''
     libc = libc or ctypes.CDLL('libc.so.6', use_errno=True)
-    netnspath = '%s/%s' % (NETNS_RUN_DIR, netns)
-    netnspath = netnspath.encode('ascii')
+    netnspath = _get_netnspath(netns)
     libc.umount2(netnspath, MNT_DETACH)
     os.unlink(netnspath)
 
@@ -170,18 +220,25 @@ def setns(netns, flags=os.O_CREAT, libc=None):
         - O_CREAT | O_EXCL -- create only if doesn't exist
     '''
     libc = libc or ctypes.CDLL('libc.so.6', use_errno=True)
-    netnspath = '%s/%s' % (NETNS_RUN_DIR, netns)
-    netnspath = netnspath.encode('ascii')
-
-    if netns in listnetns():
-        if flags & (os.O_CREAT | os.O_EXCL) == (os.O_CREAT | os.O_EXCL):
-            raise OSError(errno.EEXIST, 'netns exists', netns)
+    if isinstance(netns, basestring):
+        netnspath = _get_netnspath(netns)
+        if os.path.basename(netns) in listnetns(os.path.dirname(netns)):
+            if flags & (os.O_CREAT | os.O_EXCL) == (os.O_CREAT | os.O_EXCL):
+                raise OSError(errno.EEXIST, 'netns exists', netns)
+        else:
+            if flags & os.O_CREAT:
+                create(netns, libc=libc)
+        nsfd = os.open(netnspath, os.O_RDONLY)
+        ret = nsfd
+    elif isinstance(netns, file):
+        nsfd = netns.fileno()
+        ret = netns
+    elif isinstance(netns, int):
+        nsfd = netns
+        ret = netns
     else:
-        if flags & os.O_CREAT:
-            create(netns, libc=libc)
-
-    nsfd = os.open(netnspath, os.O_RDONLY)
-    ret = libc.syscall(__NR_setns, nsfd, CLONE_NEWNET)
-    if ret != 0:
+        raise RuntimeError('netns should be a string or an open fd')
+    error = libc.syscall(__NR_setns, nsfd, CLONE_NEWNET)
+    if error != 0:
         raise OSError(ctypes.get_errno(), 'failed to open netns', netns)
-    return nsfd
+    return ret

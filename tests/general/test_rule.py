@@ -9,7 +9,7 @@ class TestRule(object):
         require_user('root')
         self.ip = IPRoute()
         self.ifname = uifname()
-        self.ip.link_create(ifname=self.ifname, kind='dummy')
+        self.ip.link('add', ifname=self.ifname, kind='dummy')
         self.interface = self.ip.link_lookup(ifname=self.ifname)[0]
 
     def teardown(self):
@@ -37,6 +37,34 @@ class TestRule(object):
                     x.get_attr('FRA_PRIORITY') == 32006 and
                     x.get_attr('FRA_TABLE') == 15 and
                     x.get_attr('FRA_FWMARK')]) == 0
+
+    def test_fwmark_mask_normalized(self):
+        self.ip.rule('add', 15, 32006, fwmark=10, fwmask=20)
+        assert len([x for x in self.ip.get_rules() if
+                    x.get_attr('FRA_PRIORITY') == 32006 and
+                    x.get_attr('FRA_TABLE') == 15 and
+                    x.get_attr('FRA_FWMARK') and
+                    x.get_attr('FRA_FWMASK')]) == 1
+        self.ip.rule('delete', 15, 32006, fwmark=10, fwmask=20)
+        assert len([x for x in self.ip.get_rules() if
+                    x.get_attr('FRA_PRIORITY') == 32006 and
+                    x.get_attr('FRA_TABLE') == 15 and
+                    x.get_attr('FRA_FWMARK') and
+                    x.get_attr('FRA_FWMASK')]) == 0
+
+    def test_fwmark_mask_raw(self):
+        self.ip.rule('add', 15, 32006, fwmark=10, FRA_FWMASK=20)
+        assert len([x for x in self.ip.get_rules() if
+                    x.get_attr('FRA_PRIORITY') == 32006 and
+                    x.get_attr('FRA_TABLE') == 15 and
+                    x.get_attr('FRA_FWMARK') and
+                    x.get_attr('FRA_FWMASK')]) == 1
+        self.ip.rule('delete', 15, 32006, fwmark=10, FRA_FWMASK=20)
+        assert len([x for x in self.ip.get_rules() if
+                    x.get_attr('FRA_PRIORITY') == 32006 and
+                    x.get_attr('FRA_TABLE') == 15 and
+                    x.get_attr('FRA_FWMARK') and
+                    x.get_attr('FRA_FWMASK')]) == 0
 
     def test_bad_table(self):
         try:

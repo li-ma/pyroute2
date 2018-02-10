@@ -1,5 +1,8 @@
 include python-pyroute2.spec
+include setup.ini
 include README*
 include LICENSE*
 include CHANGELOG.md
 graft docs/html
+graft tests/unit
+graft examples

@@ -66,15 +66,20 @@ run `remove()`.
 
 import os
 import errno
+import fcntl
+import atexit
 import signal
-from pyroute2.config import MpPipe
-from pyroute2.config import MpProcess
+import sys
+import logging
+from pyroute2 import config
 from pyroute2.netlink.rtnl.iprsocket import MarshalRtnl
 from pyroute2.iproute import IPRouteMixin
 from pyroute2.netns import setns
 from pyroute2.netns import remove
 from pyroute2.remote import Server
 from pyroute2.remote import RemoteSocket
+
+log = logging.getLogger(__name__)
 
 
 def NetNServer(netns, cmdch, brdch, flags=os.O_CREAT):
@@ -176,20 +181,43 @@ class NetNS(IPRouteMixin, RemoteSocket):
     def __init__(self, netns, flags=os.O_CREAT):
         self.netns = netns
         self.flags = flags
-        self.cmdch, cmdch = MpPipe()
-        self.brdch, brdch = MpPipe()
-        self.server = MpProcess(target=NetNServer,
-                                args=(self.netns,
-                                      cmdch,
-                                      brdch,
-                                      self.flags))
+        self.cmdch, self._cmdch = config.MpPipe()
+        self.brdch, self._brdch = config.MpPipe()
+        atexit.register(self.close)
+        self.server = config.MpProcess(target=NetNServer,
+                                       args=(self.netns,
+                                             self._cmdch,
+                                             self._brdch,
+                                             self.flags))
         self.server.start()
         super(NetNS, self).__init__()
         self.marshal = MarshalRtnl()
 
+    def clone(self):
+        return type(self)(self.netns, self.flags)
+
     def close(self):
-        super(NetNS, self).close()
+        try:
+            super(NetNS, self).close()
+        except:
+            # something went wrong, force server shutdown
+            self.cmdch.send({'stage': 'shutdown'})
+            log.error('forced shutdown procedure, clean up netns manually')
+        # force cleanup command channels
+        self.cmdch.close()
+        self.brdch.close()
+        self._cmdch.close()
+        self._brdch.close()
+        # join the server
         self.server.join()
+        # Workaround for http://bugs.python.org/issue27151
+        if sys.version_info > (3, 2):
+            try:
+                fcntl.fcntl(self.server.sentinel, fcntl.F_GETFD)
+            except:
+                pass
+            else:
+                os.close(self.server.sentinel)
 
     def post_init(self):
         pass

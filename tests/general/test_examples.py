@@ -7,8 +7,8 @@ from threading import Thread
 from utils import require_user
 from utils import skip_if_not_supported
 from nose.plugins.skip import SkipTest
-from pyroute2.netlink import NetlinkError
 from pyroute2.common import uifname
+from pyroute2.netlink.exceptions import NetlinkError
 
 try:
     import imp
@@ -140,10 +140,6 @@ class TestExamples(object):
     def test_nla_operators(self):
         require_user('root')
         self.launcher('nla_operators')
-
-    def test_nla_operators2(self):
-        require_user('root')
-        self.launcher('nla_operators2')
 
     def test_nl80211_interfaces(self):
         try:

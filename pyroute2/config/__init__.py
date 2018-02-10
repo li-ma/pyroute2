@@ -16,4 +16,12 @@ commit_barrier = 0
 # changed in runtime, while calling uname()
 # every time is a bit expensive
 uname = platform.uname()
+machine = platform.machine()
+arch = platform.architecture()[0]
 kernel = LooseVersion(uname[2]).version[:3]
+
+AF_BRIDGE = getattr(socket, 'AF_BRIDGE', 7)
+AF_NETLINK = getattr(socket, 'AF_NETLINK', 16)
+
+data_plugins_pkgs = []
+data_plugins_path = []

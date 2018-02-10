@@ -1,5 +1,8 @@
 .. pyroute2 documentation master file
 
+.. image:: ericsson.png
+    :align: right
+
 pyroute2 netlink library
 ========================
 
@@ -12,38 +15,40 @@ General information
     general
     changelog
     makefile
+    report
 
-Architecture overview
----------------------
-
-.. toctree::
-    :maxdepth: 2
-
-    arch
-
-Utility modules
----------------
+Usage
+-----
 
 .. toctree::
     :maxdepth: 2
 
+    usage
     iproute
     ipdb
+    wiset
+    ipset
     netns
 
-Development section
--------------------
+Howtos
+------
 
 .. toctree::
     :maxdepth: 2
 
-    devmodules
-    devgeneral
+    mpls
+    debug
+
+Development
+-----------
+
+.. toctree::
+    :maxdepth: 2
+
     devcontribute
+    arch
     netlink
     nlsocket
-    dhcp
-
 
 Indices and tables
 ==================

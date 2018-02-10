@@ -1,23 +1,49 @@
 pyroute2
 ========
 
-Pyroute2 is a pure Python **netlink** and Linux **network configuration**
-library. It requires only Python stdlib, no 3rd party libraries.
-Later it can change, but the deps tree will remain as simple, as
-it is possible.
+Pyroute2 is a pure Python **netlink** library. It requires only Python stdlib,
+no 3rd party libraries. The library was started as an RTNL protocol
+implementation, so the name is **pyroute2**, but now it supports many netlink
+protocols. Some supported netlink families and protocols:
 
-The library provides several modules:
-
-* Netlink protocol implementations (RTNetlink, TaskStats, etc)
-    * **rtnl**, network settings --- addresses, routes, traffic controls
-    * **nl80211** --- wireless functions API (work in progress)
-    * **nfnetlink** --- netfilter API: **ipset** (work in progress), ...
-    * **ipq** --- simplest userspace packet filtering, iptables QUEUE target
+* **rtnl**, network settings --- addresses, routes, traffic controls
+* **nfnetlink** --- netfilter API: **ipset**, **nftables**, ...
+* **ipq** --- simplest userspace packet filtering, iptables QUEUE target
+* **devlink** --- manage and monitor devlink-enabled hardware
+* **generic** --- generic netlink families
+    * **nl80211** --- wireless functions API (basic support)
     * **taskstats** --- extended process statistics
-* Simple netlink socket object, that can be used in poll/select
-* Network configuration module IPRoute provides API that in some
-  way resembles ip/tc functionality
-* IPDB is an async transactional database of Linux network settings
+    * **acpi_events** --- ACPI events monitoring
+    * **thermal_events** --- thermal events monitoring
+    * **VFS_DQUOT** --- disk quota events monitoring
+
+the simplest usecase
+--------------------
+
+The socket objects, provided by the library, are actual socket objects with a
+little bit extended API. The additional functionality aims to:
+
+* Help to open/bind netlink sockets
+* Discover generic netlink protocols and multicast groups
+* Construct, encode and decode netlink messages
+
+Maybe the simplest usecase is to monitor events. Disk quota events::
+
+    from pyroute2 import DQuotSocket
+    # DQuotSocket automatically performs discovery and binding,
+    # since it has no other functionality beside of the monitoring
+    with DQuotSocket() as ds:
+        for message in ds.get():
+            print(message)
+
+Or IPRoute::
+
+    from pyroute2 import IPRoute
+    with IPRoute() as ipr:
+        # With IPRoute objects you have to call bind() manually
+        ipr.bind()
+        for message in ipr.get():
+            print(message)
 
 rtnetlink sample
 ----------------
@@ -25,11 +51,6 @@ rtnetlink sample
 More samples you can read in the project documentation.
 
 Low-level **IPRoute** utility --- Linux network configuration.
-**IPRoute** usually doesn't rely on external utilities, but in some
-cases, when the kernel doesn't provide the functionality via netlink
-(like on RHEL6.5), it transparently uses also brctl and sysfs to setup
-bridges and bonding interfaces.
-
 The **IPRoute** class is a 1-to-1 RTNL mapping. There are no implicit
 interface lookups and so on.
 
@@ -37,20 +58,27 @@ Some examples::
 
     from socket import AF_INET
     from pyroute2 import IPRoute
-    from pyroute2 import IPRouteRequest
-    from pyroute2.common import AF_MPLS
 
     # get access to the netlink socket
     ip = IPRoute()
 
+    # no monitoring here -- thus no bind()
+
     # print interfaces
     print(ip.get_links())
 
-    # create VETH pair
-    ip.link_create(ifname='v0p0', peer='v0p1', kind='veth')
+    # create VETH pair and move v0p1 to netns 'test'
+    ip.link('add', ifname='v0p0', peer='v0p1', kind='veth')
+    idx = ip.link_lookup(ifname='v0p1')[0]
+    ip.link('set',
+            index=idx,
+            net_ns_fd='test')
 
-    # lookup the interface and add an address
+    # bring v0p0 up and add an address
     idx = ip.link_lookup(ifname='v0p0')[0]
+    ip.link('set',
+            index=idx,
+            state='up')
     ip.addr('add',
             index=idx,
             address='10.0.0.1',
@@ -58,23 +86,55 @@ Some examples::
             prefixlen=24)
 
     # create a route with metrics
-    req = IPRouteRequest({'dst': '172.16.0.0/24',
-                          'gateway': '10.0.0.10',
-                          'metrics': {'mtu': 1400,
-                                      'hoplimit': 16}})
-    ip.route('add', **req)
+    ip.route('add',
+             dst='172.16.0.0/24',
+             gateway='10.0.0.10',
+             metrics={'mtu': 1400,
+                      'hoplimit': 16})
 
-    # create a MPLS route (requires kernel >= 4.1.4)
+    # create MPLS lwtunnel
+    # $ sudo modprobe mpls_iptunnel
+    ip.route('add',
+             dst='172.16.0.0/24',
+             oif=idx,
+             encap={'type': 'mpls',
+                    'labels': '200/300'})
+
+    # create MPLS route: push label
     # $ sudo modprobe mpls_router
-    # $ sudo sysctl -w net.mpls.platform_labels=1000
-    req = IPRouteRequest({'family': AF_MPLS,
-                          'oif': 2,
-                          'via': {'family': AF_INET,
-                                  'addr': '172.16.0.10'},
-                          'newdst': {'label': 0x20,
-                                     'bos': 1}})
-    ip.route('add', **req)
-    
+    # $ sudo sysctl net.mpls.platform_labels=1024
+    ip.route('add',
+             family=AF_MPLS,
+             oif=idx,
+             dst=0x200,
+             newdst=[0x200, 0x300])
+
+    # create SEG6 tunnel encap mode
+    # Kernel >= 4.10
+    ip.route('add',
+             dst='2001:0:0:10::2/128',
+             oif=idx,
+             encap={'type': 'seg6',
+                    'mode': 'encap',
+                    'segs': '2000::5,2000::6'})
+    # create SEG6 tunnel inline mode
+    # Kernel >= 4.10
+    ip.route('add',
+             dst='2001:0:0:10::2/128',
+             oif=idx,
+             encap={'type': 'seg6',
+                    'mode': 'inline',
+                    'segs': ['2000::5', '2000::6']})
+    # create SEG6 tunnel inline mode with hmac
+    # Kernel >= 4.10
+    ip.route('add',
+             dst='2001:0:0:22::2/128',
+             oif=idx,
+             encap={'type': 'seg6',
+                    'mode': 'inline',
+                    'segs':'2000::5,2000::6,2000::7,2000::8',
+                    'hmac':0xf})
+
     # release Netlink socket
     ip.close()
 
@@ -82,20 +142,23 @@ Some examples::
 High-level transactional interface, **IPDB**, a network settings DB::
 
     from pyroute2 import IPDB
-    # local network settings
-    ip = IPDB()
-    # create bridge and add ports and addresses
-    # transaction will be started with `with` statement
-    # and will be committed at the end of the block
-    try:
+    #
+    # The `with` statement automatically calls `IPDB.release()`
+    # in the case of an exception.
+    with IPDB() as ip:
+        #
+        # Create bridge and add ports and addresses.
+        #
+        # Transaction will be started by `with` statement
+        # and will be committed at the end of the block
         with ip.create(kind='bridge', ifname='rhev') as i:
-            i.add_port(ip.interfaces.em1)
-            i.add_port(ip.interfaces.em2)
+            i.add_port('em1')
+            i.add_port('em2')
             i.add_ip('10.0.0.2/24')
-    except Exception as e:
-        print(e)
-    finally:
-        ip.release()
+        # --> <-- Here the system state is as described in
+        #         the transaction, if no error occurs. If
+        #         there is an error, all the changes will be
+        #         rolled back.
 
 The IPDB arch allows to use it transparently with network
 namespaces::
@@ -103,15 +166,19 @@ namespaces::
     from pyroute2 import IPDB
     from pyroute2 import NetNS
 
-    # create IPDB to work in the 'test' ip netns
-    # pls notice, that IPDB itself will work in the
-    # main netns
+    # Create IPDB to work with the 'test' ip netns.
+    #
+    # Pls notice, that IPDB itself will work in the
+    # main netns, only the netlink transport is
+    # working in the namespace `test`.
     ip = IPDB(nl=NetNS('test'))
 
-    # wait until someone will set up ipaddr 127.0.0.1
+    # Wait until someone will set up ipaddr 127.0.0.1
     # in the netns on the loopback device
     ip.interfaces.lo.wait_ip('127.0.0.1')
 
+    # The IPDB object must be released before exit to
+    # sync all the possible changes that are in progress.
     ip.release()
 
 The project contains several modules for different types of
@@ -162,7 +229,7 @@ installation
 requires
 --------
 
-Python >= 2.6
+Python >= 2.7
 
 The pyroute2 testing framework requires  **flake8**, **coverage**,
 **nosetests**.

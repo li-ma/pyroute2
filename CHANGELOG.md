@@ -1,6 +1,166 @@
 changelog
 =========
 
+* 0.4.18
+    * ipdb: #379 [critical] -- routes in global commits
+    * ipdb: #380 -- global commit with disabled plugins
+    * ipdb: #381 -- exceptions fixed
+    * ipdb: #382 -- manage dependent routes during interface commits
+    * ipdb: #384 -- global `review()`
+    * ipdb: #385 -- global `drop()`
+    * netns: #383 -- support ppc64
+    * general: public API refactored (same signatures; to be documented)
+* 0.4.17
+    * req: #374 [critical] -- mode nla init
+    * iproute: #378 [critical] -- fix `flush_routes()` to respect filters
+    * ifinfmsg: #376 -- fix data plugins API to support pyinstaller
+* 0.4.16
+    * ipdb: race fixed: remove port/bridge
+    * ipdb: #280 -- race fixed: port/bridge
+    * ipdb: #302 -- ipaddr views: [ifname].ipaddr.ipv4, [ifname]ipaddr.ipv6
+    * ipdb: #357 -- allow bridge timings to have some delta
+    * ipdb: #338 -- allow to fix interface objects from failed `create()`
+    * rtnl: #336 -- fix vlan flags
+    * iproute: #342 -- the match method takes any callable
+    * nlsocket: #367 -- increase default SO_SNDBUF
+    * ifinfmsg: support tuntap on armv6l, armv7l platforms
+* 0.4.15
+    * req: #365 -- full and short nla notation fixed, critical
+    * iproute: #364 -- new method, `brport()`
+    * ipdb: -- support bridge port options
+* 0.4.14
+    * event: new genl protocols set: VFS_DQUOT, acpi_event, thermal_event
+    * ipdb: #310 -- fixed priority change on routes
+    * ipdb: #349 -- fix setting ifalias on interfaces
+    * ipdb: #353 -- mitigate kernel oops during bridge creation
+    * ipdb: #354 -- allow to explicitly choose plugins to load
+    * ipdb: #359 -- provide read-only context managers
+    * rtnl: #336 -- vlan flags support
+    * rtnl: #352 -- support interface type plugins
+    * tc: #344 -- mirred action
+    * tc: #346 -- connmark action
+    * netlink: #358 -- memory optimization
+    * config: #360 -- generic asyncio config
+    * iproute: #362 -- allow to change or replace a qdisc
+* 0.4.13
+    * ipset: full rework of the IPSET_ATTR_DATA and IPSET_ATTR_ADT
+      ACHTUNG: this commit may break API compatibility
+    * ipset: hash:mac support
+    * ipset: list:set support
+    * ipdb: throw EEXIST when creates VLAN/VXLAN devs with same ID, but
+      under different names
+    * tests: #329 -- include unit tests into the bundle
+    * legal: E/// logo removed
+* 0.4.12
+    * ipdb: #314 -- let users choose RTNL groups IPDB listens to
+    * ipdb: #321 -- isolate `net_ns_.*` setup in a separate code block
+    * ipdb: #322 -- IPv6 updates on interfaces in DOWN state
+    * ifinfmsg: allow absolute/relative paths in the net_ns_fd NLA
+    * ipset: #323 -- support setting counters on ipset add
+    * ipset: `headers()` command
+    * ipset: revisions
+    * ipset: #326 -- mark types
+* 0.4.11
+    * rtnl: #284 -- support vlan_flags
+    * ipdb: #288 -- do not inore link-local addresses
+    * ipdb: #300 -- sort ip addresses
+    * ipdb: #306 -- support net_ns_pid
+    * ipdb: #307 -- fix IPv6 routes management
+    * ipdb: #311 -- vlan interfaces address loading
+    * iprsocket: #305 -- support NETLINK_LISTEN_ALL_NSID
+* 0.4.10
+    * devlink: fix fd leak on broken init
+* 0.4.9
+    * sock_diag: initial NETLINK_SOCK_DIAG support
+    * rtnl: fix critical fd leak in the compat code
+* 0.4.8
+    * rtnl: compat proxying fix
+* 0.4.7
+    * rtnl: compat code is back
+    * netns: custom netns path support
+    * ipset: multiple improvements
+* 0.4.6
+    * ipdb: #278 -- fix initial ports mapping
+    * ipset: #277 -- fix ADT attributes parsing
+    * nl80211: #274, #275, #276 -- BSS-related fixes
+* 0.4.5
+    * ifinfmsg: GTP interfaces support
+    * generic: devlink protocol support
+    * generic: code cleanup
+* 0.4.4
+    * iproute: #262 -- `get_vlans()` fix
+    * iproute: default mask 32 for IPv4 in `addr()`
+    * rtmsg: #260 -- RTA_FLOW support
+* 0.4.3
+    * ipdb: #259 -- critical `Interface` class fix
+    * benchmark: initial release
+* 0.4.2
+    * ipdb: event modules
+    * ipdb: on-demand views
+    * ipdb: rules management
+    * ipdb: bridge controls
+    * ipdb: #258 -- important Python compatibility fixes
+    * netns: #257 -- pipe leak fix
+    * netlink: support pickling for nlmsg
+* 0.4.1
+    * netlink: no buffer copying in the parser
+    * netlink: parse NLA on demand
+    * ipdb: #244 -- lwtunnel multipath fixes
+    * iproute: #235 -- route types
+    * docs updated
+* 0.4.0
+    * ACHTUNG: old kernels compatibility code is dropped
+    * ACHTUNG: IPDB uses two separate sockets for monitoring and commands
+    * ipdb: #244 -- multipath lwtunnel
+    * ipdb: #242 -- AF_MPLS routes
+    * ipdb: #241, #234 -- fix create(..., reuse=True)
+    * ipdb: #239 -- route encap and metrics fixed
+    * ipdb: #238 -- generic port management
+    * ipdb: #235 -- support route scope and type
+    * ipdb: #230, #232 -- routes GC (work in progress)
+    * rtnl: #245 -- do not fail if `/proc/net/psched` doesn't exist
+    * rtnl: #233 -- support VRF interfaces (requires net-next)
+* 0.3.21
+    * ipdb: #231 -- return `ipdb.common` as deprecated
+* 0.3.20
+    * iproute: `vlan_filter()`
+    * iproute: #229 -- FDB management
+    * general: exceptions re-exported via the root module
+* 0.3.19
+    * rtmsg: #227 -- MPLS lwtunnel basic support
+    * iproute: `route()` docs updated
+    * general: #228 -- exceptions layout changed
+    * package-rh: rpm subpackages
+* 0.3.18
+    * version bump -- include docs in the release tarball
+* 0.3.17
+    * tcmsg: qdiscs and filters as plugins
+    * tcmsg: #223 -- tc clsact and bpf direct-action
+    * tcmsg: plug, codel, choke, drr qdiscs
+    * tests: CI in VMs (see civm project)
+    * tests: xunit output
+    * ifinfmsg: tuntap support in i386, i686
+    * ifinfmsg: #207 -- support vlan filters
+    * examples: #226 -- included in the release tarball
+    * ipdb: partial commits, initial support
+* 0.3.16
+    * ipdb: fix the multiple IPs in one commit case
+    * rtnl: support veth peer attributes
+    * netns: support 32bit i686
+    * netns: fix MIPS support
+    * netns: fix tun/tap creation
+    * netns: fix interface move between namespaces
+    * tcmsg: support hfsc, fq_codel, codel qdiscs
+    * nftables: initial support
+    * netlink: dump/load messages to/from simple types
+* 0.3.15
+    * netns: #194 -- fix fd leak
+    * iproute: #184 -- fix routes dump
+    * rtnl: TCA_ACT_BPF support
+    * rtnl: ipvlan support
+    * rtnl: OVS support removed
+    * iproute: rule() improved to support all NLAs
+    * project supported by Ericsson
 * 0.3.14
     * package-rh: spec fixed
     * package-rh: both licenses added
@@ -14,7 +174,7 @@ changelog
     * ipdb: new `Interface.wait_ip()` routine
     * ipdb: #175 -- fix `master` attribute cleanup
     * ipdb: #171 -- support multipath routes
-    * ipdb: memory consuption improvements
+    * ipdb: memory consumption improvements
     * rtmsg: MPLS support
     * rtmsg: RTA_VIA support
     * iwutil: #174 -- fix FREQ_FIXED flag
@@ -152,7 +312,7 @@ changelog
 * 0.2.7
     * ipdb: use separate namespaces for utility functions and other stuff
     * ipdb: generic callbacks (see also IPDB.wait_interface())
-    * iocore: initial multipath support 
+    * iocore: initial multipath support
     * iocore: use of 16byte uuid4 for packet ids
 * 0.2.6
     * rpc: initial version, REQ/REP, PUSH/PULL

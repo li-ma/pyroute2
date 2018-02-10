@@ -6,11 +6,8 @@ import errno
 import platform
 import subprocess
 import ctypes
-from pyroute2.netlink import NetlinkError
-from pyroute2.netlink.rtnl.ifinfmsg import compat_create_bridge
-from pyroute2.netlink.rtnl.ifinfmsg import compat_create_bond
-from pyroute2.netlink.rtnl.ifinfmsg import compat_del_bridge
-from pyroute2.netlink.rtnl.ifinfmsg import compat_del_bond
+from pyroute2 import NetlinkError
+from pyroute2 import IPRoute
 from nose.plugins.skip import SkipTest
 from nose.tools import make_decorator
 from distutils.version import LooseVersion
@@ -75,23 +72,27 @@ def require_8021q():
 
 
 def require_bridge():
-    try:
-        compat_create_bridge('test_req')
-    except OSError:
-        raise SkipTest('can not create <bridge>')
-    if not grep('ip link show', 'test_req'):
-        raise SkipTest('can not create <bridge>')
-    compat_del_bridge('test_req')
+    with IPRoute() as ip:
+        try:
+            ip.link('add', ifname='test_req', kind='bridge')
+        except Exception:
+            raise SkipTest('can not create <bridge>')
+        idx = ip.link_lookup(ifname='test_req')
+        if not idx:
+            raise SkipTest('can not create <bridge>')
+        ip.link('del', index=idx)
 
 
 def require_bond():
-    try:
-        compat_create_bond('test_req')
-    except IOError:
-        raise SkipTest('can not create <bond>')
-    if not grep('ip link show', 'test_req'):
-        raise SkipTest('can not create <bond>')
-    compat_del_bond('test_req')
+    with IPRoute() as ip:
+        try:
+            ip.link('add', ifname='test_req', kind='bond')
+        except Exception:
+            raise SkipTest('can not create <bond>')
+        idx = ip.link_lookup(ifname='test_req')
+        if not idx:
+            raise SkipTest('can not create <bond>')
+        ip.link('del', index=idx)
 
 
 def require_user(user):
@@ -167,6 +168,19 @@ def get_ip_addr(interface=None):
     return ret
 
 
+def get_ip_brd(interface=None):
+    argv = ['ip', '-o', 'ad']
+    if interface:
+        argv.extend(['li', 'dev', interface])
+    out = _check_output(*argv)
+    ret = []
+    for string in out:
+        fields = string.split()
+        if len(fields) >= 5 and fields[4] == 'brd':
+            ret.append(fields[5])
+    return ret
+
+
 def get_ip_link():
     ret = []
     out = _check_output('ip', '-o', 'li')
@@ -221,7 +235,7 @@ def get_bpf_syscall_num():
     return int(m.group(1))
 
 
-def get_simple_bpf_program():
+def get_simple_bpf_program(prog_type):
     NR_bpf = get_bpf_syscall_num()
 
     class BPFAttr(ctypes.Structure):
@@ -235,14 +249,19 @@ def get_simple_bpf_program():
                     ('kern_version', ctypes.c_uint)]
 
     BPF_PROG_TYPE_SCHED_CLS = 3
+    BPF_PROG_TYPE_SCHED_ACT = 4
     BPF_PROG_LOAD = 5
     insns = (ctypes.c_ulonglong * 2)()
     # equivalent to: int my_func(void *) { return 1; }
     insns[0] = 0x00000001000000b7
     insns[1] = 0x0000000000000095
     license = ctypes.c_char_p(b'GPL')
-    attr = BPFAttr(BPF_PROG_TYPE_SCHED_CLS, len(insns),
-                   insns, license, 0, 0, None, 0)
+    if prog_type.lower() == "sched_cls":
+        attr = BPFAttr(BPF_PROG_TYPE_SCHED_CLS, len(insns),
+                       insns, license, 0, 0, None, 0)
+    elif prog_type.lower() == "sched_act":
+        attr = BPFAttr(BPF_PROG_TYPE_SCHED_ACT, len(insns),
+                       insns, license, 0, 0, None, 0)
     libc = ctypes.CDLL('libc.so.6')
     libc.syscall.argtypes = [ctypes.c_long, ctypes.c_int,
                              ctypes.POINTER(type(attr)), ctypes.c_uint]

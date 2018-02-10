@@ -1,36 +1,106 @@
-%global pkgname pyroute2
+%global srcname pyroute2
+%global sum Pure Python netlink library
 
-Name: python-%{pkgname}
-Version: 0.3.14
+%{!?python3_pkgversion:%global python3_pkgversion 3}
+
+Name: python-%{srcname}
+Version: 0.4.13
 Release: 1%{?dist}
-Summary: Pure Python netlink library
-License: GPLv2+
+Summary: %{sum}
+License: GPLv2+ or Apache-2.0
 Group: Development/Languages
-URL: https://github.com/svinota/%{pkgname}
+URL: https://github.com/svinota/%{srcname}
 
 BuildArch: noarch
 BuildRequires: python2-devel
-Source: https://pypi.python.org/packages/source/p/pyroute2/pyroute2-%{version}.tar.gz
+BuildRequires: python%{python3_pkgversion}-devel
+Source: https://pypi.io/packages/source/p/pyroute2/pyroute2-%{version}.tar.gz
 
 %description
 PyRoute2 provides several levels of API to work with Netlink
 protocols, such as Generic Netlink, RTNL, TaskStats, NFNetlink,
 IPQ.
 
+%package -n python2-%{srcname}
+Summary: %{sum}
+%{?python_provide:%python_provide python2-%{srcname}}
+
+%description -n python2-%{srcname}
+PyRoute2 provides several levels of API to work with Netlink
+protocols, such as Generic Netlink, RTNL, TaskStats, NFNetlink,
+IPQ.
+
+%package -n python%{python3_pkgversion}-%{srcname}
+Summary: %{sum}
+%{?python_provide:%python_provide python%{python3_pkgversion}-%{srcname}}
+
+%description -n python%{python3_pkgversion}-%{srcname}
+PyRoute2 provides several levels of API to work with Netlink
+protocols, such as Generic Netlink, RTNL, TaskStats, NFNetlink,
+IPQ.
+
+
 %prep
-%setup -q -n %{pkgname}-%{version}
+%setup -q -n %{srcname}-%{version}
 
 %build
-# nothing to build
+%py2_build
+%py3_build
 
 %install
-%{__python} setup.py install --root $RPM_BUILD_ROOT
+%py2_install
+%py3_install
 
-%files
+%files -n python2-%{srcname}
 %doc README* LICENSE.GPL.v2 LICENSE.Apache.v2
-%{python_sitelib}/%{pkgname}*
+%{python2_sitelib}/%{srcname}*
+
+%files -n python%{python3_pkgversion}-%{srcname}
+%doc README* LICENSE.GPL.v2 LICENSE.Apache.v2
+%{python3_sitelib}/%{srcname}*
 
 %changelog
+* Tue Mar  7 2017 Antoni S. Puimedon <antonisp@celebdor.com> 0.4.13-1
+- upgrade to 0.4.13
+- ipset hash:mac support
+- ipset: hash:mac support
+- ipset: list:set support
+- ifinfmsg: allow absolute/relative paths in the net_ns_fd NLA
+- ipdb: #322 -- IPv6 updates on interfaces in DOWN state
+- rtnl: #284 -- support vlan_flags
+- ipdb: #307 -- fix IPv6 routes management
+- ipdb: #311 -- vlan interfaces address loading
+- iprsocket: #305 -- support NETLINK_LISTEN_ALL_NSID
+
+* Sat Feb 11 2017 Fedora Release Engineering <releng@fedoraproject.org> - 0.4.10-3
+- Rebuilt for https://fedoraproject.org/wiki/Fedora_26_Mass_Rebuild
+
+* Mon Dec 19 2016 Miro Hrončok <mhroncok@redhat.com> - 0.4.10-2
+- Rebuild for Python 3.6
+
+* Fri Oct 14 2016 Peter V. Saveliev <peter@svinota.eu> 0.4.10-1
+- devlink fd leak fix
+
+* Thu Oct  6 2016 Peter V. Saveliev <peter@svinota.eu> 0.4.9-1
+- critical fd leak fix
+- initial NETLINK_SOCK_DIAG support
+
+* Tue Sep 27 2016 Peter V. Saveliev <peter@svinota.eu> 0.4.8-1
+- uplift to 0.4.x
+
+* Tue Jul 19 2016 Fedora Release Engineering <rel-eng@lists.fedoraproject.org> - 0.3.19-2
+- https://fedoraproject.org/wiki/Changes/Automatic_Provides_for_Python_RPM_Packages
+
+* Tue Apr  5 2016 Peter V. Saveliev <peter@svinota.eu> 0.3.19-1
+- separate Python2 and Python3 packages
+- MPLS lwtunnel support
+
+* Thu Feb 04 2016 Fedora Release Engineering <releng@fedoraproject.org> - 0.3.15-2
+
+- Rebuilt for https://fedoraproject.org/wiki/Fedora_24_Mass_Rebuild
+* Fri Nov 20 2015 Peter V. Saveliev <peter@svinota.eu> 0.3.15-1
+- critical NetNS fd leak fix
+
 * Tue Sep  1 2015 Peter V. Saveliev <peter@svinota.eu> 0.3.14-1
 - bogus rpm dates in the changelog are fixed
 - both licenses added
